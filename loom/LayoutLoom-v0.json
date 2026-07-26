@@ -2,8 +2,8 @@
   "loom_schema_version": "0.4.0",
   "meta": {
     "product": "LayoutLoom-v0",
-    "description": "本地 RAG pipeline，多層 guardrail 架構",
-    "stack": "Ollama / Gemma 3 4B / ChromaDB / FastAPI / React Flow"
+    "description": "本地 banner 產生 pipeline:LLM 直接產出自成一體的 HTML,確定性節點負責版型挑選、Layout Guard 幾何修復、HTML→PNG 轉圖與輸出。",
+    "stack": "Ollama (gpt-oss:20b-cloud) / FastAPI / Playwright / Pillow / React Flow"
   },
   "contracts": {},
   "io": {
