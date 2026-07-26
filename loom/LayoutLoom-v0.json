@@ -1,0 +1,355 @@
+{
+  "loom_schema_version": "0.4.0",
+  "meta": {
+    "product": "LayoutLoom-v0",
+    "description": "本地 RAG pipeline，多層 guardrail 架構",
+    "stack": "Ollama / Gemma 3 4B / ChromaDB / FastAPI / React Flow"
+  },
+  "contracts": {},
+  "io": {
+    "input": "主標題 / 副標題文字，加上畫布尺寸與產品圖 / Logo / 字型素材",
+    "output": "banner 成品圖 (Img) 與對應的 HTML"
+  },
+  "nodes": [
+    {
+      "id": "Canva",
+      "kind": "deterministic",
+      "intent": "建立空白畫布，\n尺寸為參數設定",
+      "inputs": {},
+      "outputs": {
+        "canva": "空白畫布 (依 config 尺寸)，作為 banner 底層"
+      },
+      "config": {
+        "width": 1200,
+        "height": 628,
+        "background": "#ffffff"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Load Product Image",
+      "kind": "io",
+      "intent": "從來源載入產品圖片素材",
+      "inputs": {},
+      "outputs": {
+        "Product Img": "產品主圖，供 banner 排版使用"
+      },
+      "config": {
+        "path": "assets/product.png"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Load Logo",
+      "kind": "io",
+      "intent": "載入品牌 Logo 圖檔",
+      "inputs": {},
+      "outputs": {
+        "Logo": "品牌 Logo 圖片"
+      },
+      "config": {
+        "path": "assets/logo.png"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Load Font",
+      "kind": "io",
+      "intent": "載入 banner 文字要用的字型檔",
+      "inputs": {},
+      "outputs": {
+        "Font": "文字字型"
+      },
+      "config": {
+        "path": "fonts/NotoSansTC-Bold.ttf"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Pick Layout",
+      "kind": "deterministic",
+      "intent": "選擇版面原型 (archetype) 並依畫布尺寸換算成像素區域：TEXT 區 (logo/標題/副標題直向堆疊) 與 PRODUCT 區 (產品圖)。版面多樣性唯一的來源",
+      "inputs": {
+        "canva": "空白畫布 (尺寸基準)"
+      },
+      "outputs": {
+        "Layout": "解析後的版型：兩個不相交的像素區域 + 字級範圍 + 對齊方式"
+      },
+      "config": {
+        "layout": "random"
+      },
+      "output_note": null
+    },
+    {
+      "id": "LLM Banner Plan",
+      "kind": "model",
+      "intent": "依畫布尺寸、版型區域與素材 (產品圖 / Logo / 字型) 及主標題、副標題，規劃 banner 版面，產出排版規格 (Spec) 與可 render 的 HTML",
+      "inputs": {
+        "canva": "空白畫布 (尺寸基準)",
+        "Layout": "Pick Layout 選定的版型區域",
+        "Product Img": "產品主圖素材",
+        "Logo": "品牌 Logo 素材",
+        "Font": "文字字型",
+        "Title": "主標題文字",
+        "Subtitle": "副標題文字"
+      },
+      "outputs": {
+        "Spec": "banner 排版規格 (各元素大小 / 位置 / 字級)",
+        "HTML Banner": "將使用者需求的banner，以html的格式render"
+      },
+      "config": {
+        "model": "gemma3:4b",
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
+      "output_note": null
+    },
+    {
+      "id": "Input Text",
+      "kind": "deterministic",
+      "intent": "輸入 banner 主標題文字",
+      "inputs": {},
+      "outputs": {
+        "str": "title"
+      },
+      "config": {
+        "placeholder": "輸入主標題"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Input",
+      "kind": "deterministic",
+      "intent": "輸入 banner 副標題文字",
+      "inputs": {},
+      "outputs": {
+        "str": "Subtitle"
+      },
+      "config": {
+        "placeholder": "輸入副標題"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Layout Guard",
+      "kind": "deterministic",
+      "intent": "幾何守門：把模型輸出的 Spec / HTML 夾制進版型區域 (不重疊、不出界、比例不變形、絕對定位保證)。設計 (顏色/字級/比例) 保留模型的決定",
+      "inputs": {
+        "Spec": "模型排版規格",
+        "HTML": "模型產出的 banner HTML",
+        "Layout": "Pick Layout 選定的版型區域"
+      },
+      "outputs": {
+        "Spec": "夾制後的排版規格",
+        "HTML": "夾制後的 banner HTML"
+      },
+      "config": {
+        "enabled": true
+      },
+      "output_note": null
+    },
+    {
+      "id": "Show Text",
+      "kind": "deterministic",
+      "intent": "顯示banner內容的spec 包含：\n圖片類的大小\ntitle 跟 subtitle 的字級\n等等",
+      "inputs": {
+        "Spec": "banner 排版規格 (要顯示的內容)"
+      },
+      "outputs": {},
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Save HTML",
+      "kind": "deterministic",
+      "intent": "將 banner 的 HTML 存檔",
+      "inputs": {
+        "HTML": "banner 的 HTML 內容"
+      },
+      "outputs": {
+        "HTML": "已存檔的 HTML"
+      },
+      "config": {
+        "path": "output/banner.html"
+      },
+      "output_note": null
+    },
+    {
+      "id": "HTML2img",
+      "kind": "deterministic",
+      "intent": "把 banner 的 HTML render 成圖片",
+      "inputs": {
+        "HTML": "要轉圖的 banner HTML"
+      },
+      "outputs": {
+        "Img": "render 後的 banner 圖片"
+      },
+      "config": {
+        "format": "png",
+        "scale": 2
+      },
+      "output_note": null
+    },
+    {
+      "id": "Show Image",
+      "kind": "deterministic",
+      "intent": "預覽 banner 成品圖",
+      "inputs": {
+        "Img": "banner 成品圖"
+      },
+      "outputs": {
+        "Img": "banner 成品圖 (原樣傳遞供存檔)"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Save Image",
+      "kind": "deterministic",
+      "intent": "將 banner 成品圖存檔",
+      "inputs": {
+        "Img": "要存檔的 banner 成品圖"
+      },
+      "outputs": {},
+      "config": {
+        "path": "output/banner.png",
+        "format": "png"
+      },
+      "output_note": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Canva",
+      "to": "LLM Banner Plan",
+      "from_port": "canva",
+      "to_port": "canva",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Canva",
+      "to": "Pick Layout",
+      "from_port": "canva",
+      "to_port": "canva",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Pick Layout",
+      "to": "LLM Banner Plan",
+      "from_port": "Layout",
+      "to_port": "Layout",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Pick Layout",
+      "to": "Layout Guard",
+      "from_port": "Layout",
+      "to_port": "Layout",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Product Image",
+      "to": "LLM Banner Plan",
+      "from_port": "Product Img",
+      "to_port": "Product Img",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Logo",
+      "to": "LLM Banner Plan",
+      "from_port": "Logo",
+      "to_port": "Logo",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Font",
+      "to": "LLM Banner Plan",
+      "from_port": "Font",
+      "to_port": "Font",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Input Text",
+      "to": "LLM Banner Plan",
+      "from_port": "str",
+      "to_port": "Title",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Input",
+      "to": "LLM Banner Plan",
+      "from_port": "str",
+      "to_port": "Subtitle",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "LLM Banner Plan",
+      "to": "Layout Guard",
+      "from_port": "Spec",
+      "to_port": "Spec",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "LLM Banner Plan",
+      "to": "Layout Guard",
+      "from_port": "HTML Banner",
+      "to_port": "HTML",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Layout Guard",
+      "to": "Show Text",
+      "from_port": "Spec",
+      "to_port": "Spec",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Layout Guard",
+      "to": "Save HTML",
+      "from_port": "HTML",
+      "to_port": "HTML",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Save HTML",
+      "to": "HTML2img",
+      "from_port": "HTML",
+      "to_port": "HTML",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "HTML2img",
+      "to": "Show Image",
+      "from_port": "Img",
+      "to_port": "Img",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Show Image",
+      "to": "Save Image",
+      "from_port": "Img",
+      "to_port": "Img",
+      "map": {},
+      "when": null
+    }
+  ],
+  "execution": {
+    "type": "superstep",
+    "loops": []
+  }
+}

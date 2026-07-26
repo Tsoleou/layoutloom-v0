@@ -1,0 +1,19 @@
+{
+  "campaign": "demo-laptops",
+  "products": [
+    {
+      "name": "swift",
+      "title": "Swift Go 14",
+      "subtitle": "輕薄 AI 筆電,續航一整天",
+      "cta": "立即選購",
+      "product_image": "assets/demo-swift.png"
+    },
+    {
+      "name": "nitro",
+      "title": "Nitro V 16 電競怪獸",
+      "subtitle": "火力全開,效能無極限",
+      "cta": "了解更多",
+      "product_image": "assets/demo-nitro.png"
+    }
+  ]
+}

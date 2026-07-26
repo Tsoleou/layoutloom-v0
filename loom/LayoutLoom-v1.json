@@ -1,0 +1,406 @@
+{
+  "loom_schema_version": "0.4.0",
+  "meta": {
+    "product": "LayoutLoom-v1",
+    "description": "GDN 靜態 banner 批次產出 pipeline:campaign 資料(多產品線)× GDN 尺寸集,LLM 一次綜合規劃整套設計(版型選擇 + 風格 tokens),確定性節點負責幾何適配、模板渲染、轉圖、壓縮與 150KB 合規檢查;出口為 ZIP 成品包與不合規報告。不含動畫/GIF、不含多語系。",
+    "stack": "Ollama (gpt-oss:20b-cloud) / FastAPI / Playwright / Pillow / React Flow"
+  },
+  "contracts": {},
+  "io": {
+    "input": "campaign 檔(products[]:name/title/subtitle/cta/product_image)+ Brand Kit(品牌色盤/字體/logo/CTA 樣式)+ GDN 尺寸集設定",
+    "output": "ZIP 成品包(每產品線 × 每尺寸的 PNG + manifest);master design 展示(LLM 的版型選擇與風格 tokens);或不合規報告(任一張超過 150KB 時的清單)"
+  },
+  "nodes": [
+    {
+      "id": "Load Campaign",
+      "kind": "io",
+      "intent": "讀取 campaign 檔,輸出產品線資料列(name / title / subtitle / cta / product_image 路徑)。一列 = 一條產品線",
+      "inputs": {},
+      "outputs": {
+        "Products": "產品線資料列(文案 + 素材路徑)"
+      },
+      "config": {
+        "path": "campaign.json"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Load Product Images",
+      "kind": "io",
+      "intent": "依 campaign 資料載入每條產品線的產品圖,量測像素尺寸與長寬比 —— 版型綜合評估與幾何適配都需要",
+      "inputs": {
+        "Products": "產品線資料列"
+      },
+      "outputs": {
+        "Product Assets": "每條產品線的產品圖中繼資料(路徑 + 像素尺寸 + 長寬比)"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Brand Kit",
+      "kind": "io",
+      "intent": "載入品牌規範:色盤、字體檔、logo、CTA 樣式(圓角 / 字重)。模型的風格決策空間受此約束,渲染時的實體素材也由此提供",
+      "inputs": {},
+      "outputs": {
+        "Brand Kit": "品牌色盤 + 字體 + logo 中繼資料 + CTA 樣式規範"
+      },
+      "config": {
+        "palette": [
+          "#0f4c81",
+          "#83c5be",
+          "#111111",
+          "#ffffff"
+        ],
+        "font_path": "fonts/NotoSansTC-Bold.ttf",
+        "logo_path": "assets/logo.png",
+        "cta_radius_px": 6
+      },
+      "output_note": null
+    },
+    {
+      "id": "Size Set",
+      "kind": "deterministic",
+      "intent": "GDN 尺寸集為資料:每個尺寸歸類為比例類別(橫幅 / 摩天樓 / 矩形)。輸出尺寸 + 類別清單",
+      "inputs": {},
+      "outputs": {
+        "Sizes": "尺寸清單,每項含 w / h 與比例類別"
+      },
+      "config": {
+        "sizes": [
+          [
+            300,
+            250
+          ],
+          [
+            336,
+            280
+          ],
+          [
+            728,
+            90
+          ],
+          [
+            300,
+            600
+          ],
+          [
+            160,
+            600
+          ],
+          [
+            320,
+            100
+          ],
+          [
+            970,
+            250
+          ]
+        ]
+      },
+      "output_note": null
+    },
+    {
+      "id": "Layout Catalog",
+      "kind": "deterministic",
+      "intent": "版型原型目錄:每個比例類別可用的 archetype(元素區域的比例定義)為純資料。同一份目錄餵給模型做選擇、餵給 Adapt Layout 做幾何 —— 單一真理來源",
+      "inputs": {},
+      "outputs": {
+        "Catalog": "比例類別 → 可用版型原型(區域定義)"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "LLM Master Design",
+      "kind": "model",
+      "intent": "唯一模型觸點,整個 campaign 一次綜合評估:看全部產品線的文案長度、產品圖長寬比、品牌約束、尺寸類別與可用版型,為每條產品線選定各比例類別的版型,並輸出風格 tokens(背景漸層 / 色盤分配 / 字級比例 / CTA 樣式)。不輸出像素幾何、不輸出 HTML;所有設計判斷在此一次定案,下游純機械執行、不回頭修改",
+      "inputs": {
+        "Products": "產品線文案(評估文字長度與語氣)",
+        "Product Assets": "產品圖長寬比(評估與版型的相容性)",
+        "Brand Kit": "風格決策的約束空間",
+        "Sizes": "要覆蓋的尺寸與比例類別",
+        "Catalog": "可選的版型原型"
+      },
+      "outputs": {
+        "Master Design": "每產品線:各比例類別的版型選擇 + 風格 tokens"
+      },
+      "config": {
+        "model": "gpt-oss:20b-cloud",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "reasoning_effort": "low"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Adapt Layout",
+      "kind": "deterministic",
+      "intent": "把 master design 機械展開到每個 (產品線 × 尺寸):取該尺寸類別選定的版型區域,依實際文字長度與產品圖長寬比計算精確幾何(字級自動縮放、換行估算、CTA 尺寸),保證不重疊、不出界、比例不變形",
+      "inputs": {
+        "Master Design": "版型選擇 + 風格 tokens",
+        "Sizes": "目標尺寸清單",
+        "Catalog": "版型原型的區域定義",
+        "Product Assets": "產品圖長寬比"
+      },
+      "outputs": {
+        "Specs": "每張 banner 的元素幾何規格(product / logo / title / subtitle / cta)"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Render HTML",
+      "kind": "deterministic",
+      "intent": "依 spec + 風格 tokens + 品牌素材,以固定模板產出每張 banner 的自包含 HTML(絕對定位、@font-face、CSS 漸層背景)",
+      "inputs": {
+        "Specs": "幾何規格",
+        "Master Design": "風格 tokens",
+        "Brand Kit": "字體 / logo / CTA 樣式"
+      },
+      "outputs": {
+        "HTML Set": "每張 banner 的自包含 HTML"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "HTML2img",
+      "kind": "deterministic",
+      "intent": "headless 瀏覽器把每張 HTML 轉成 PNG",
+      "inputs": {
+        "HTML Set": "要轉圖的 HTML 集合"
+      },
+      "outputs": {
+        "Images": "PNG 集合"
+      },
+      "config": {
+        "format": "png",
+        "scale": 2
+      },
+      "output_note": null
+    },
+    {
+      "id": "Optimize Image",
+      "kind": "deterministic",
+      "intent": "每張 PNG 無條件壓縮(色盤量化 / 優化),為 GDN 150KB 上限預留空間",
+      "inputs": {
+        "Images": "原始 PNG 集合"
+      },
+      "outputs": {
+        "Optimized": "壓縮後 PNG 集合"
+      },
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Compliance Check",
+      "kind": "deterministic",
+      "intent": "檢查每張 ≤ 150KB(GDN 上限)。合規集合走 Pass;存在超標檔案時走 Fail 短路到報告出口",
+      "inputs": {
+        "Optimized": "壓縮後 PNG 集合"
+      },
+      "outputs": {
+        "Pass": "全數合規的 PNG 集合",
+        "Fail": "超標清單(檔名 + KB)"
+      },
+      "config": {
+        "max_kb": 150
+      },
+      "output_note": null
+    },
+    {
+      "id": "Pack ZIP",
+      "kind": "io",
+      "intent": "成品打包:全部 PNG + manifest(產品線 × 尺寸對照表)輸出 ZIP(出口一)",
+      "inputs": {
+        "Pass": "合規的 PNG 集合"
+      },
+      "outputs": {},
+      "config": {
+        "path": "output/campaign.zip"
+      },
+      "output_note": null
+    },
+    {
+      "id": "Fail Report",
+      "kind": "deterministic",
+      "intent": "列出不合規的 banner(檔名、實際大小、超標量)供人工處置(出口二)",
+      "inputs": {
+        "Fail": "超標清單"
+      },
+      "outputs": {},
+      "config": {},
+      "output_note": null
+    },
+    {
+      "id": "Show Design",
+      "kind": "deterministic",
+      "intent": "展示出口:呈現 LLM 的 master design 原文 —— 每條產品線在各比例類別選了哪個版型、風格 tokens(背景 / 配色 / 字級比例 / CTA 樣式)。設計判斷全在這一份,看這裡就知道模型做了什麼決定(對應 v0 的 Show Text)",
+      "inputs": {
+        "Master Design": "要展示的版型選擇 + 風格 tokens"
+      },
+      "outputs": {},
+      "config": {},
+      "output_note": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Load Campaign",
+      "to": "Load Product Images",
+      "from_port": "Products",
+      "to_port": "Products",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Campaign",
+      "to": "LLM Master Design",
+      "from_port": "Products",
+      "to_port": "Products",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Product Images",
+      "to": "LLM Master Design",
+      "from_port": "Product Assets",
+      "to_port": "Product Assets",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Load Product Images",
+      "to": "Adapt Layout",
+      "from_port": "Product Assets",
+      "to_port": "Product Assets",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Brand Kit",
+      "to": "LLM Master Design",
+      "from_port": "Brand Kit",
+      "to_port": "Brand Kit",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Brand Kit",
+      "to": "Render HTML",
+      "from_port": "Brand Kit",
+      "to_port": "Brand Kit",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Size Set",
+      "to": "LLM Master Design",
+      "from_port": "Sizes",
+      "to_port": "Sizes",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Size Set",
+      "to": "Adapt Layout",
+      "from_port": "Sizes",
+      "to_port": "Sizes",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Layout Catalog",
+      "to": "LLM Master Design",
+      "from_port": "Catalog",
+      "to_port": "Catalog",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Layout Catalog",
+      "to": "Adapt Layout",
+      "from_port": "Catalog",
+      "to_port": "Catalog",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "LLM Master Design",
+      "to": "Adapt Layout",
+      "from_port": "Master Design",
+      "to_port": "Master Design",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "LLM Master Design",
+      "to": "Render HTML",
+      "from_port": "Master Design",
+      "to_port": "Master Design",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Adapt Layout",
+      "to": "Render HTML",
+      "from_port": "Specs",
+      "to_port": "Specs",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Render HTML",
+      "to": "HTML2img",
+      "from_port": "HTML Set",
+      "to_port": "HTML Set",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "HTML2img",
+      "to": "Optimize Image",
+      "from_port": "Images",
+      "to_port": "Images",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Optimize Image",
+      "to": "Compliance Check",
+      "from_port": "Optimized",
+      "to_port": "Optimized",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Compliance Check",
+      "to": "Pack ZIP",
+      "from_port": "Pass",
+      "to_port": "Pass",
+      "map": {},
+      "when": null
+    },
+    {
+      "from": "Compliance Check",
+      "to": "Fail Report",
+      "from_port": "Fail",
+      "to_port": "Fail",
+      "map": {},
+      "when": "存在超過 150KB 的檔案"
+    },
+    {
+      "from": "LLM Master Design",
+      "to": "Show Design",
+      "from_port": "Master Design",
+      "to_port": "Master Design",
+      "map": {},
+      "when": null
+    }
+  ],
+  "execution": {
+    "type": "superstep",
+    "loops": []
+  }
+}

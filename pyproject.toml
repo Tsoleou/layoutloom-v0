@@ -1,0 +1,25 @@
+[project]
+name = "layoutloom-v0"
+version = "0.1.0"
+description = "Banner generator scaffolded from the LayoutLoom-v0 Loom Graph contract"
+requires-python = ">=3.10"
+dependencies = [
+    "pillow>=10",
+    "requests>=2.31",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+render = ["playwright>=1.44"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["layoutloom_v0*", "layoutloom_v1*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
