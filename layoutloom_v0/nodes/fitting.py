@@ -9,6 +9,10 @@ from __future__ import annotations
 MIN_FS = 9.0  # below this a subtitle is dropped, a title is clamped
 LINE_HEIGHT = 1.25  # rendered text height ~ font-size * LINE_HEIGHT
 
+# 行頭禁則: characters that may not begin a line (closing/trailing punctuation).
+# When a break leaves one at a line start, it is pulled up onto the prior line.
+KINSOKU_HEAD = frozenset("。、，．・？！；：」』）】》〉、…ー～")
+
 
 def classify(w: float, h: float) -> str:
     """Ratio class: banner (wide & short) / skyscraper (tall & narrow) / rectangle."""
@@ -24,17 +28,32 @@ def text_units(text: str) -> float:
     return sum(1.05 if ord(c) > 0x2E80 else 0.6 for c in text) or 0.6
 
 
+def _balanced_two_line_units(text: str) -> float:
+    """Width (units) of the longest line in the best balanced two-line split.
+
+    Measures the actual longest composed line — the split point that minimises
+    the wider of the two halves — instead of guessing it as a fixed fraction of
+    the total, so :func:`fit_text` and the composed render agree.
+    """
+    if len(text) < 2:
+        return text_units(text)
+    return min(
+        max(text_units(text[:k]), text_units(text[k:]))
+        for k in range(1, len(text))
+    )
+
+
 def fit_text(text: str, w: float, h: float, cap: float | None = None) -> tuple[float, int] | None:
     """Largest font size (and line count, max 2) that fits the box, or None.
 
     Both line counts are evaluated and the larger font wins: a long title in a
-    narrow column reads far better as two big lines than one tiny line.
-    Two-line wrap budgets a bit over half the width (wrap points are uneven).
+    narrow column reads far better as two big lines than one tiny line. The
+    two-line branch sizes from the real longest composed line, not a guess.
     """
     units = text_units(text)
     limit = cap or 1e9
     one = min(w / units, h / LINE_HEIGHT, limit)
-    two = min(w / (units * 0.55), h / (2 * LINE_HEIGHT * 1.04), limit)
+    two = min(w / _balanced_two_line_units(text), h / (2 * LINE_HEIGHT * 1.04), limit)
     fs, lines = max((one, 1), (two, 2), key=lambda t: t[0])
     if fs >= MIN_FS:
         return fs, lines
@@ -92,7 +111,17 @@ def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> li
             hi = mid
         else:
             lo = mid
-    return pack(hi)
+    return _apply_kinsoku(pack(hi))
+
+
+def _apply_kinsoku(lines: list[str]) -> list[str]:
+    """Pull any 行頭禁則 punctuation off a line start onto the prior line's end,
+    accepting slight overflow rather than orphaning the mark (追い込み)."""
+    for i in range(1, len(lines)):
+        while lines[i] and lines[i][0] in KINSOKU_HEAD:
+            lines[i - 1] += lines[i][0]
+            lines[i] = lines[i][1:]
+    return [ln for ln in lines if ln]
 
 
 def line_count(text: str, fs: float, w: float) -> int:

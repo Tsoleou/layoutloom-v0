@@ -24,3 +24,11 @@ def test_balances_line_widths_across_forced_break():
     # Greedy fill would pack line 1 full (限時三天全館 ~6.3) and orphan 優惠 (~2.1).
     # Two lines are forced either way, so balance them: 限時三天 / 全館優惠 (4.2/4.2).
     assert compose_lines(["限時三天", "全館", "優惠"], max_units=6.3) == ["限時三天", "全館優惠"]
+
+
+def test_kinsoku_pulls_line_start_punctuation_onto_previous_line():
+    # A punctuation-level fallback chunk "。全館" would put the fullwidth period
+    # at the start of line 2 (行頭禁則 — no punctuation may begin a line). Kinsoku
+    # pulls the "。" up onto the end of line 1, accepting slight overflow
+    # (限時三天。 ~5.25 > 4.2) rather than orphaning the mark at a line start.
+    assert compose_lines(["限時三天", "。全館"], max_units=4.2) == ["限時三天。", "全館"]
