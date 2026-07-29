@@ -16,8 +16,8 @@ from typing import Any, Callable
 
 from .config import CanvasConfig, ModelConfig, PipelineConfig
 
-DEFAULT_TITLE = "大促銷"
-DEFAULT_SUBTITLE = "限時三天"
+DEFAULT_TITLE = "Big Sale"
+DEFAULT_SUBTITLE = "Three Days Only"
 
 
 def _reasoning(v: Any) -> str | None:

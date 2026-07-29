@@ -41,7 +41,7 @@ def load_campaign(path: Path) -> Campaign:
                 name=str(p["name"]),
                 title=str(p["title"]),
                 subtitle=str(p.get("subtitle", "")),
-                cta=str(p.get("cta", "了解更多")),
+                cta=str(p.get("cta", "Learn More")),
                 product_image=Path(p["product_image"]),
             )
         )

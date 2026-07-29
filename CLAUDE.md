@@ -22,11 +22,11 @@ pytest tests/test_driver.py     # one file
 pytest tests/test_planner_parse.py::test_parses_clean_json   # one test
 
 # Offline smoke test of the wiring (no Ollama, no browser):
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --stub --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --stub --demo-assets
 
 # Real run (needs `ollama pull gemma3:4b` + a headless browser):
 pip install -e ".[render]" && playwright install chromium
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --demo-assets
 
 # API:
 uvicorn layoutloom_v0.api:app --port 8012

@@ -29,11 +29,11 @@ pip install -e ".[dev]"
 pytest                                    # 全離線：stub planner + stub renderer
 
 # 離線試跑接線（不需要 Ollama / 瀏覽器）
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --stub --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --stub --demo-assets
 
 # 真跑（需要 ollama pull gemma3:4b，以及 headless 瀏覽器）
 pip install -e ".[render]" && playwright install chromium
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --demo-assets
 
 # API（io.input → io.output）
 uvicorn layoutloom_v0.api:app --port 8012
