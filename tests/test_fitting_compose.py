@@ -26,6 +26,25 @@ def test_balances_line_widths_across_forced_break():
     assert compose_lines(["限時三天", "全館", "優惠"], max_units=6.3) == ["限時三天", "全館優惠"]
 
 
+def test_latin_breaks_at_word_boundary_not_mid_word():
+    # "Aero Ultralight" (9.0 units) overflows a 6.0 budget. Character breaking
+    # would orphan "light" ("Aero Ultra"/"light"); breaking at the space keeps
+    # each word whole. Trailing break-point space is trimmed.
+    assert compose_lines(["Aero Ultralight"], max_units=6.0) == ["Aero", "Ultralight"]
+
+
+def test_hyphenated_compound_breaks_after_hyphen():
+    # "Big-Screen" (6.0 units) overflows a 4.0 budget: break after the hyphen,
+    # keeping the hyphen on the leading line, not mid-word.
+    assert compose_lines(["Big-Screen"], max_units=4.0) == ["Big-", "Screen"]
+
+
+def test_single_word_wider_than_box_still_char_breaks():
+    # A single long word with no space or hyphen (3.6 units) must still fall
+    # back to character breaking rather than overflow — the last resort.
+    assert compose_lines(["Business"], max_units=2.4) == ["Busi", "ness"]
+
+
 def test_kinsoku_pulls_line_start_punctuation_onto_previous_line():
     # A punctuation-level fallback chunk "。全館" would put the fullwidth period
     # at the start of line 2 (行頭禁則 — no punctuation may begin a line). Kinsoku

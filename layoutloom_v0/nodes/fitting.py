@@ -84,6 +84,41 @@ def fit_text(text: str, w: float, h: float, cap: float | None = None) -> tuple[f
     return None
 
 
+def _break_units(text: str) -> list[str]:
+    """Split an overflowing chunk into breakable units at word boundaries: after
+    each space and after each hyphen, keeping the delimiter on the unit it ends
+    (so a following line never starts with a stray space, and a hyphen stays on
+    the leading line). Text with no such boundary stays a single unit — the
+    caller then character-breaks it as a last resort."""
+    units: list[str] = []
+    cur = ""
+    for ch in text:
+        cur += ch
+        if ch in (" ", "-"):
+            units.append(cur)
+            cur = ""
+    if cur:
+        units.append(cur)
+    return units or [text]
+
+
+def _char_break(unit: str, fits) -> list[str]:
+    """Last resort for a single unit wider than the box: greedily pack it into
+    character runs that each satisfy ``fits`` (used only when a word/segment has
+    no space or hyphen to break at)."""
+    atoms: list[str] = []
+    run = ""
+    for ch in unit:
+        if run and not fits(run + ch):
+            atoms.append(run)
+            run = ch
+        else:
+            run += ch
+    if run:
+        atoms.append(run)
+    return atoms
+
+
 def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> list[str]:
     """Compose phrase chunks into balanced lines, each within ``max_units``
     (font-size units, per :func:`text_units`), never splitting a chunk unless
@@ -100,16 +135,14 @@ def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> li
         if fits(chunk):
             atoms.append(chunk)
             continue
-        # No boundary to break at: fall back to greedy character breaking.
-        run = ""
-        for ch in chunk:
-            if run and not fits(run + ch):
-                atoms.append(run)
-                run = ch
+        # Overflowing chunk: break at word boundaries first (space / hyphen),
+        # falling back to character breaking only for a single unit that alone
+        # overflows — so space-delimited copy never splits mid-word.
+        for unit in _break_units(chunk):
+            if fits(unit):
+                atoms.append(unit)
             else:
-                run += ch
-        if run:
-            atoms.append(run)
+                atoms.extend(_char_break(unit, fits))
     def pack(cap: float) -> list[str]:  # greedy fill with a per-line width cap
         lines: list[str] = []
         cur = ""
@@ -135,7 +168,9 @@ def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> li
             hi = mid
         else:
             lo = mid
-    return _apply_kinsoku(pack(hi))
+    # Trim the whitespace left at word-boundary break points, dropping any line
+    # that was whitespace-only.
+    return [ln.strip() for ln in _apply_kinsoku(pack(hi)) if ln.strip()]
 
 
 def _apply_kinsoku(lines: list[str]) -> list[str]:
