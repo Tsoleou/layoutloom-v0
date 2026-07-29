@@ -9,7 +9,7 @@ is the offline reference implementation for tests.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -18,6 +18,7 @@ import requests
 from ..config import ModelConfig
 from .assets_io import FontAsset, ImageAsset
 from .canvas import Canvas
+from .fitting import segment_text
 from .layout_pick import Layout, reference_spec
 
 
@@ -25,6 +26,8 @@ from .layout_pick import Layout, reference_spec
 class BannerPlan:
     spec: dict
     html: str
+    # phrase segmentation per text field (title/subtitle) — the composer's input
+    chunks: dict[str, list[str]] = field(default_factory=dict)
 
 
 def asset_uri(path: Path, base_url: str | None) -> str:
@@ -165,7 +168,15 @@ def parse_plan_response(text: str) -> BannerPlan:
     spec, html = data.get("spec"), data.get("html")
     if not isinstance(spec, dict) or not isinstance(html, str) or not html.strip():
         raise ValueError("model response missing 'spec' object or 'html' string")
-    return BannerPlan(spec=spec, html=html)
+    # Optional phrase segmentation. Keep only well-formed {field: [str, ...]}
+    # entries; anything malformed is ignored so the guard falls back per field.
+    raw = data.get("chunks")
+    chunks: dict[str, list[str]] = {}
+    if isinstance(raw, dict):
+        for field_name, parts in raw.items():
+            if isinstance(parts, list) and all(isinstance(p, str) for p in parts) and parts:
+                chunks[field_name] = parts
+    return BannerPlan(spec=spec, html=html, chunks=chunks)
 
 
 class OllamaBannerPlanner:
@@ -253,4 +264,7 @@ body {{ margin: 0; }}
 <img class="el" src="{asset_uri(product.path, base)}" style="{pos('product')}">
 <h1 class="el" style="{txt('title')}">{title}</h1>{subtitle_el}
 </div></body></html>"""
-        return BannerPlan(spec=spec, html=html)
+        chunks = {"title": segment_text(title)}
+        if "subtitle" in spec:
+            chunks["subtitle"] = segment_text(subtitle)
+        return BannerPlan(spec=spec, html=html, chunks=chunks)
