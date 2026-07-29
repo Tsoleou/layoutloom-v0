@@ -82,6 +82,10 @@ def build_prompt(
         else "centered horizontally inside the TEXT region (text-align: center)"
     )
     example = json.dumps(reference_spec(layout, product, logo, title, subtitle), indent=2)
+    chunks_example = json.dumps(
+        {"title": segment_text(title), "subtitle": segment_text(subtitle)},
+        ensure_ascii=False,
+    )
     return f"""You are a banner layout designer. Design a single static banner.
 
 Canvas: {canvas.width}x{canvas.height}px, background {canvas.background}.
@@ -91,11 +95,16 @@ Font: family "{font.family}". In the HTML <style>, include: {font_face}
 Title: {title}
 Subtitle: {subtitle}
 
-Respond with ONLY a JSON object, no markdown fences, with exactly two keys:
+Respond with ONLY a JSON object, no markdown fences, with exactly three keys:
   "spec": an object describing each element's size, position and font size
           (keys: product, logo, title, subtitle; values: objects with x, y,
           width, height, and font_size_px for text; a text box's height is
           roughly its font_size_px),
+  "chunks": phrase segmentation for the title and subtitle — each split into a
+          list of atomic semantic chunks that must never be broken across
+          lines, keeping any punctuation on the chunk it ends. Segment by
+          meaning, not width; code composes the lines. For this copy:
+          {chunks_example}
   "html": a complete self-contained HTML document that renders the banner
           exactly per the spec. It MUST follow exactly this structure — same
           tags, same classes, one absolutely-positioned element each, inline

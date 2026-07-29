@@ -7,11 +7,14 @@ owns the *geometry*. It clamps every element into the regions of the Layout
 chosen by the "Pick Layout" node, restacks the text column with proportional
 gaps, and rewrites the inline styles + spec to match.
 
-Text handling is width-aware: font sizes are fitted to the actual copy (the
-inner text is parsed from the HTML) with a two-line budget, stacked using the
-real wrapped height — not a one-line guess — and a subtitle that cannot reach
-the minimum font size is dropped rather than squeezed. This is what keeps the
-layout intact at any canvas size, not just the default 1200x628.
+Text handling is width-aware and phrase-aware (ADR-0006): the copy's phrase
+chunks (from BannerPlan.chunks, or segment_text as a fallback) are fitted with
+fit_chunks and composed into explicit <br> lines written back into the HTML —
+line breaks are the composer's job, not the browser's greedy auto-wrap. Font
+sizes never assume a split the composer can't make, the stack uses the real
+composed line counts, and a subtitle that cannot reach the minimum font size
+is dropped rather than squeezed. This is what keeps the layout intact at any
+canvas size, not just the default 1200x628.
 
 HTML that doesn't match the template is returned untouched — there is nothing
 safe to repair.
