@@ -14,7 +14,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from layoutloom_v0.nodes.assets_io import ImageAsset
-from layoutloom_v0.nodes.fitting import LINE_HEIGHT, MIN_FS, fit_text, text_units
+from layoutloom_v0.nodes.fitting import (
+    MIN_FS,
+    compose_lines,
+    fit_chunks,
+    segment_text,
+    text_units,
+)
 
 from .brand_kit import BrandKit
 from .campaign_io import ProductLine
@@ -33,6 +39,7 @@ class Placed:
     h: float
     fs: float | None = None  # font size for text elements
     lines: int = 1
+    line_texts: tuple[str, ...] = ()  # composed <br> lines for text elements
 
 
 BannerSpec = dict[str, Placed]  # element -> geometry; subtitle may be absent
@@ -59,23 +66,36 @@ def adapt_layout(
     arch = get_archetype(size.ratio_class, design.layouts[size.ratio_class])
     spec: BannerSpec = {}
 
+    def chunks_of(el: str, text: str) -> list[str]:
+        # model phrase segmentation, else the deterministic fallback segmenter
+        return design.chunks.get(el) or segment_text(text or "字")
+
     # images: aspect-preserving fit, centred in their rects
     spec["product"] = _fit_image(product, *_px(arch.elements["product"], size))
     spec["logo"] = _fit_image(brand.logo, *_px(arch.elements["logo"], size))
 
-    # title: never dropped; clamp to MIN_FS/2 lines if the estimate says tight
+    # title: never dropped; clamp to MIN_FS if the composition says tight. Fit
+    # from the phrase chunks so the font never assumes a break the composer
+    # can't make (chunk-aware, mirroring v0's Layout Guard).
     tx, ty, tw, th = _px(arch.elements["title"], size)
     cap = size.height * 0.5 * design.style.type_scale
-    fitted = fit_text(line.title, tw, th, cap=cap)
-    fs, lines = fitted if fitted else (MIN_FS, 2)
-    spec["title"] = Placed(tx, ty, tw, th, fs=fs, lines=lines)
+    t_chunks = chunks_of("title", line.title)
+    fitted = fit_chunks(t_chunks, tw, th, cap=cap)
+    if fitted:
+        fs, t_lines = fitted
+    else:
+        fs, t_lines = MIN_FS, compose_lines(t_chunks, tw / MIN_FS)
+    spec["title"] = Placed(tx, ty, tw, th, fs=fs, lines=len(t_lines), line_texts=tuple(t_lines))
 
     # subtitle: dropped when it cannot reach the minimum font size
     if line.subtitle and "subtitle" in arch.elements:
         sx, sy, sw, sh = _px(arch.elements["subtitle"], size)
-        fitted = fit_text(line.subtitle, sw, sh, cap=fs * 0.6)
+        fitted = fit_chunks(chunks_of("subtitle", line.subtitle), sw, sh, cap=fs * 0.6)
         if fitted:
-            spec["subtitle"] = Placed(sx, sy, sw, sh, fs=fitted[0], lines=fitted[1])
+            s_fs, s_lines = fitted
+            spec["subtitle"] = Placed(
+                sx, sy, sw, sh, fs=s_fs, lines=len(s_lines), line_texts=tuple(s_lines)
+            )
 
     # CTA: pill sized to its label, centred in its rect
     cx, cy, cw, ch = _px(arch.elements["cta"], size)

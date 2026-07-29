@@ -79,6 +79,22 @@ def test_placed_boxes_disjoint_and_inside(cls, name, size, copy):
         assert not _overlap(pa, pb), f"{ea} overlaps {eb}"
 
 
+def test_title_composed_at_chunk_boundary_carried_on_placed():
+    # 135x70px title box: one line (235px) overflows, so it wraps to two lines —
+    # exactly at the chunk boundary, never splitting 「限時三天」.
+    design = ProductDesign(
+        name="x",
+        layouts={c: next(iter(CATALOG[c])) for c in RATIO_CLASSES},
+        style=STYLE,
+        chunks={"title": ["限時三天", "全館優惠"]},
+    )
+    line = ProductLine("x", "限時三天全館優惠", "", "買", Path("p.png"))
+    spec, _ = adapt_layout(design, line, Size(300, 250), PRODUCT, BRAND)
+    t = spec["title"]
+    assert t.line_texts == ("限時三天", "全館優惠")
+    assert t.lines == 2
+
+
 def test_unfittable_subtitle_is_omitted():
     # tiny leaderboard + long subtitle: subtitle must be dropped, not squeezed
     line = ProductLine("x", "促銷", "這是一段塞不進小橫幅的超長副標題文案內容", "買", Path("p.png"))

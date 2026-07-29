@@ -10,7 +10,13 @@ import pytest
 from layoutloom_v0.nodes.assets_io import FontAsset, ImageAsset
 from layoutloom_v1.nodes.brand_kit import BrandKit
 from layoutloom_v1.nodes.campaign_io import Campaign, ProductLine
-from layoutloom_v1.nodes.master_design import contrast, parse_master_design, snap_to_palette
+from layoutloom_v1.nodes.master_design import (
+    StubMasterDesigner,
+    contrast,
+    parse_master_design,
+    snap_to_palette,
+)
+from layoutloom_v1.nodes.size_set import Size
 
 BRAND = BrandKit(
     palette=("#0f4c81", "#83c5be", "#111111", "#ffffff"),
@@ -117,3 +123,39 @@ def test_missing_product_gets_defaults():
 
 def test_snap_to_palette_invalid_input():
     assert snap_to_palette("not-a-colour", BRAND.palette) == BRAND.palette[0]
+
+
+def test_reads_model_supplied_chunks():
+    raw = json.loads(_payload())
+    raw["products"][0]["chunks"] = {
+        "title": ["Swift Go", "14"],
+        "subtitle": ["輕薄", "AI 筆電"],
+    }
+    d = parse_master_design(json.dumps(raw), CAMPAIGN, BRAND)
+    p = d.products["swift"]
+    assert p.chunks["title"] == ["Swift Go", "14"]
+    assert p.chunks["subtitle"] == ["輕薄", "AI 筆電"]
+
+
+def test_missing_chunks_fall_back_to_segment_text():
+    campaign = Campaign(
+        name="t",
+        products=(ProductLine("swift", "限時三天，全館優惠", "買一送一！超值", "立即選購", Path("a.png")),),
+    )
+    raw = json.loads(_payload())  # no "chunks" key
+    d = parse_master_design(json.dumps(raw), campaign, BRAND)
+    p = d.products["swift"]
+    assert p.chunks["title"] == ["限時三天，", "全館優惠"]  # break after 、，
+    assert p.chunks["subtitle"] == ["買一送一！", "超值"]
+
+
+def test_stub_designer_segments_chunks():
+    campaign = Campaign(
+        name="t",
+        products=(ProductLine("swift", "限時三天，全館優惠", "買一送一！超值", "立即選購", Path("a.png")),),
+    )
+    assets = {"swift": ImageAsset(path=Path("a.png"), width=600, height=600)}
+    d = StubMasterDesigner().design(campaign, assets, BRAND, (Size(300, 250),))
+    p = d.products["swift"]
+    assert p.chunks["title"] == ["限時三天，", "全館優惠"]
+    assert p.chunks["subtitle"] == ["買一送一！", "超值"]

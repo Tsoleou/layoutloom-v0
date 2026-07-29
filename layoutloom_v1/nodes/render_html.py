@@ -25,6 +25,13 @@ def _pos(p: Placed) -> str:
     return f"left:{p.x:.0f}px; top:{p.y:.0f}px; width:{p.w:.0f}px; height:{p.h:.0f}px;"
 
 
+def _inner(p: Placed, fallback: str) -> str:
+    """The composed phrase lines as explicit <br> breaks — the geometry already
+    fitted these lines, so the browser must not re-wrap them (falls back to the
+    raw copy when nothing was composed)."""
+    return "<br>".join(p.line_texts) if p.line_texts else fallback
+
+
 def render_html(
     spec: BannerSpec,
     arch: Archetype,
@@ -48,13 +55,13 @@ def render_html(
         f'<img class="el" src="{asset_uri(product.path, asset_base_url)}" '
         f'style="{_pos(spec["product"])}">',
         f'<h1 class="el txt" style="{_pos(title)} font-size:{title.fs:.0f}px; '
-        f'color:{style.title_color};">{line.title}</h1>',
+        f'color:{style.title_color};">{_inner(title, line.title)}</h1>',
     ]
     if "subtitle" in spec:
         sub = spec["subtitle"]
         parts.append(
             f'<p class="el txt" style="{_pos(sub)} font-size:{sub.fs:.0f}px; '
-            f'color:{style.subtitle_color};">{line.subtitle}</p>'
+            f'color:{style.subtitle_color};">{_inner(sub, line.subtitle)}</p>'
         )
     cta = spec["cta"]
     parts.append(
