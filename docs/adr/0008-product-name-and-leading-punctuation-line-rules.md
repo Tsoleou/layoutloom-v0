@@ -22,7 +22,16 @@ split and ADR-0007's determinism-at-scale positioning.
 The title line budget is **product name (1 line) + tagline within the
 remaining budget**, defaulting to ≤2 lines total (tagline gets one line,
 shrink-to-fit). The tagline font shrinks before the product name does; the
-product name is never shrunk below the readable minimum.
+product name is never shrunk below the readable minimum. Because the product
+name is never shrunk below that minimum and is never split, a name too long for
+a narrow box at the minimum font is allowed to clip — "never split / never
+below minimum" wins over "never overflow", the same trade-off the title already
+makes by never being dropped.
+
+The `product_name` is required to be a **leading substring of the title**; the
+tagline is the remainder after it. When it is not a prefix the tagline cannot
+be located, so the rule degrades to normal (free-wrapping) title composition
+rather than guessing — a documented, deliberate fallback, not a guarantee.
 
 ## Node placement
 

@@ -15,9 +15,11 @@ from dataclasses import dataclass
 
 from layoutloom_v0.nodes.assets_io import ImageAsset
 from layoutloom_v0.nodes.fitting import (
+    LINE_HEIGHT,
     MIN_FS,
     compose_lines,
     fit_chunks,
+    largest_feasible_fs,
     segment_text,
     text_units,
 )
@@ -47,6 +49,32 @@ BannerSpec = dict[str, Placed]  # element -> geometry; subtitle may be absent
 
 def _px(r: FracRect, size: Size) -> tuple[float, float, float, float]:
     return r.x * size.width, r.y * size.height, r.w * size.width, r.h * size.height
+
+
+def _fit_title_with_name(
+    name: str, tagline_chunks: list[str], w: float, h: float, cap: float, max_lines: int = 2
+) -> tuple[float, list[str]]:
+    """Compose a title with the product name pinned to its own first line and the
+    tagline composed into the remaining lines (ADR-0008). Returns the largest
+    font where the name fits its line and the tagline fits the rest; the title is
+    never dropped, so the font clamps to the readable minimum if nothing fits."""
+    tag_budget = max(max_lines - 1, 1)
+
+    def compose_tag(fs: float) -> list[str]:
+        return compose_lines(tagline_chunks, w / fs, tag_budget) if tagline_chunks else []
+
+    def feasible(fs: float) -> bool:
+        if fs <= 0:
+            return True
+        if text_units(name) * fs > w + 1e-6:  # product name must fit its own line
+            return False
+        tag = compose_tag(fs)
+        if len(tag) > tag_budget:
+            return False
+        return (1 + len(tag)) * fs * LINE_HEIGHT <= h + 1e-6
+
+    fs = max(largest_feasible_fs(feasible, cap), MIN_FS)  # title never dropped
+    return fs, [name] + compose_tag(fs)
 
 
 def _fit_image(asset: ImageAsset, x: float, y: float, w: float, h: float) -> Placed:
@@ -79,12 +107,17 @@ def adapt_layout(
     # can't make (chunk-aware, mirroring v0's Layout Guard).
     tx, ty, tw, th = _px(arch.elements["title"], size)
     cap = size.height * 0.5 * design.style.type_scale
-    t_chunks = chunks_of("title", line.title)
-    fitted = fit_chunks(t_chunks, tw, th, cap=cap)
-    if fitted:
-        fs, t_lines = fitted
+    if line.product_name and line.title.startswith(line.product_name):
+        # product name owns its own first line; tagline composes beneath it
+        tagline = line.title[len(line.product_name):].lstrip()
+        fs, t_lines = _fit_title_with_name(line.product_name, segment_text(tagline), tw, th, cap)
     else:
-        fs, t_lines = MIN_FS, compose_lines(t_chunks, tw / MIN_FS)
+        t_chunks = chunks_of("title", line.title)
+        fitted = fit_chunks(t_chunks, tw, th, cap=cap)
+        if fitted:
+            fs, t_lines = fitted
+        else:
+            fs, t_lines = MIN_FS, compose_lines(t_chunks, tw / MIN_FS)
     spec["title"] = Placed(tx, ty, tw, th, fs=fs, lines=len(t_lines), line_texts=tuple(t_lines))
 
     # subtitle: dropped when it cannot reach the minimum font size

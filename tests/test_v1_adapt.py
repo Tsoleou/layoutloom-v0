@@ -95,7 +95,21 @@ def test_title_composed_at_chunk_boundary_carried_on_placed():
     assert t.lines == 2
 
 
-def test_unfittable_subtitle_is_omitted():
+def test_product_name_forced_onto_its_own_first_line():
+    # On a wide banner the full title "Aero 14 Ultralight" would otherwise fit a
+    # single line (larger font). An explicit product_name forces it onto its own
+    # first line, with the tagline composed beneath (ADR-0008).
+    design = ProductDesign(
+        name="x",
+        layouts={c: next(iter(CATALOG[c])) for c in RATIO_CLASSES},
+        style=STYLE,
+    )
+    line = ProductLine("x", "Aero 14 Ultralight", "", "Shop", Path("p.png"), product_name="Aero 14")
+    # forced onto its own line on both a wide banner and a tall skyscraper
+    for size in (Size(728, 90), Size(300, 600)):
+        t = adapt_layout(design, line, size, PRODUCT, BRAND)[0]["title"]
+        assert t.line_texts == ("Aero 14", "Ultralight"), size.name
+        assert t.lines == 2
     # tiny leaderboard + long subtitle: subtitle must be dropped, not squeezed
     line = ProductLine("x", "促銷", "這是一段塞不進小橫幅的超長副標題文案內容", "買", Path("p.png"))
     spec, _ = adapt_layout(_design("banner", "banner-product-right"), line, Size(320, 50), PRODUCT, BRAND)

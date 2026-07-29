@@ -189,6 +189,26 @@ def _apply_kinsoku(lines: list[str], max_units: float) -> list[str]:
     return [ln for ln in lines if ln]
 
 
+def largest_feasible_fs(feasible, cap: float | None = None) -> float:
+    """Largest font size (up to ``cap``) for which ``feasible(fs)`` holds, by
+    bisection. Feasibility must be monotonic in font size — if a font fits, every
+    smaller one does — which every geometry constraint here satisfies (a bigger
+    font only shrinks the width budget and grows the height). One source of truth
+    for the fit search shared by :func:`fit_chunks` and Adapt Layout's title fit.
+    """
+    hi = cap or 1e4
+    if feasible(hi):
+        return hi
+    lo = 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if feasible(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 def fit_chunks(
     chunks: list[str],
     w: float,
@@ -211,18 +231,7 @@ def fit_chunks(
         lines = compose_lines(chunks, w / fs, max_lines)
         return len(lines) <= max_lines and len(lines) * fs * LINE_HEIGHT <= h + 1e-6
 
-    hi = cap or 1e4
-    if feasible(hi):
-        fs = hi
-    else:
-        lo = 0.0
-        for _ in range(60):
-            mid = (lo + hi) / 2
-            if feasible(mid):
-                lo = mid
-            else:
-                hi = mid
-        fs = lo
+    fs = largest_feasible_fs(feasible, cap)
     if fs < MIN_FS:
         return None
     return fs, compose_lines(chunks, w / fs, max_lines)

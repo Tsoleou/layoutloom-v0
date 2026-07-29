@@ -136,6 +136,7 @@ def _logo(path: Path, font_path: Path) -> None:
 PRODUCTS = [
     {
         "name": "aero",
+        "product_name": "Aero 14",
         "title": "Aero 14 Ultralight",
         "subtitle": "997g all-magnesium body, 28-hour battery",
         "cta": "Shop Now",
@@ -143,6 +144,7 @@ PRODUCTS = [
     },
     {
         "name": "travelpro",
+        "product_name": "TravelPro 15",
         "title": "TravelPro 15 for Business",
         "subtitle": "Military-grade durable, one-tap video calls",
         "cta": "See Plans",
@@ -150,6 +152,7 @@ PRODUCTS = [
     },
     {
         "name": "vista",
+        "product_name": "Vista 16",
         "title": "Vista 16 Big-Screen at Home",
         "subtitle": "16-inch 2.5K eye-care display, share with the family",
         "cta": "View Deals",
@@ -157,6 +160,7 @@ PRODUCTS = [
     },
     {
         "name": "strike",
+        "product_name": "Strike 17",
         "title": "Strike 17 Gaming Beast",
         "subtitle": "RTX 5080, 240Hz blazing-fast display",
         "cta": "Go All Out",
@@ -182,6 +186,7 @@ def ensure_mock_campaign(
                     "products": [
                         {
                             "name": p["name"],
+                            "product_name": p["product_name"],
                             "title": p["title"],
                             "subtitle": p["subtitle"],
                             "cta": p["cta"],
