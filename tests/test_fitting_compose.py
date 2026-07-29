@@ -45,9 +45,22 @@ def test_single_word_wider_than_box_still_char_breaks():
     assert compose_lines(["Business"], max_units=2.4) == ["Busi", "ness"]
 
 
-def test_kinsoku_pulls_line_start_punctuation_onto_previous_line():
-    # A punctuation-level fallback chunk "。全館" would put the fullwidth period
-    # at the start of line 2 (行頭禁則 — no punctuation may begin a line). Kinsoku
-    # pulls the "。" up onto the end of line 1, accepting slight overflow
-    # (限時三天。 ~5.25 > 4.2) rather than orphaning the mark at a line start.
-    assert compose_lines(["限時三天", "。全館"], max_units=4.2) == ["限時三天。", "全館"]
+def test_ascii_line_start_punctuation_pulled_onto_previous_line():
+    # An ASCII comma at a line start is 行頭禁則 too: "big"/",tiny" would orphan
+    # the comma; pull it up to "big," (2.4 units) since it fits the 3.0 budget.
+    assert compose_lines(["big", ",tiny"], max_units=3.0) == ["big,", "tiny"]
+
+
+def test_line_start_punctuation_dropped_when_pull_up_would_overflow():
+    # "bigger" already fills the 3.6 budget; pulling the leading comma up to
+    # "bigger," (4.2) would overflow the box, so the comma is dropped instead of
+    # overflowing or being orphaned at the line start (ADR-0008).
+    assert compose_lines(["bigger", ",x"], max_units=3.6) == ["bigger", "x"]
+
+
+def test_kinsoku_pulls_cjk_line_start_punctuation_up_when_it_fits():
+    # A punctuation-level fallback chunk "。全館" would put the fullwidth period at
+    # the start of line 2 (行頭禁則 — no punctuation may begin a line). With room in
+    # the budget (限時三天。 ~5.25 <= 5.3) kinsoku pulls the "。" up onto line 1
+    # (追い込み). ADR-0008 makes this conditional; the drop path is covered above.
+    assert compose_lines(["限時三天", "。全館"], max_units=5.3) == ["限時三天。", "全館"]

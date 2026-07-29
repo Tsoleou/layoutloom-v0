@@ -9,9 +9,10 @@ from __future__ import annotations
 MIN_FS = 9.0  # below this a subtitle is dropped, a title is clamped
 LINE_HEIGHT = 1.25  # rendered text height ~ font-size * LINE_HEIGHT
 
-# 行頭禁則: characters that may not begin a line (closing/trailing punctuation).
-# When a break leaves one at a line start, it is pulled up onto the prior line.
-KINSOKU_HEAD = frozenset("。、，．・？！；：」』）】》〉、…ー～")
+# 行頭禁則: characters that may not begin a line (closing/trailing punctuation),
+# CJK and ASCII alike. When a break leaves one at a line start, it is pulled up
+# onto the prior line (or dropped if that would overflow — see _apply_kinsoku).
+KINSOKU_HEAD = frozenset("。、，．・？！；：」』）】》〉、…ー～" + ",.?!;:)]}")
 
 # Clause-ending punctuation the deterministic segmenter breaks *after* (the mark
 # stays on the preceding chunk). ASCII counterparts included for Latin copy.
@@ -170,15 +171,20 @@ def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> li
             lo = mid
     # Trim the whitespace left at word-boundary break points, dropping any line
     # that was whitespace-only.
-    return [ln.strip() for ln in _apply_kinsoku(pack(hi)) if ln.strip()]
+    return [ln.strip() for ln in _apply_kinsoku(pack(hi), max_units) if ln.strip()]
 
 
-def _apply_kinsoku(lines: list[str]) -> list[str]:
-    """Pull any 行頭禁則 punctuation off a line start onto the prior line's end,
-    accepting slight overflow rather than orphaning the mark (追い込み)."""
+def _apply_kinsoku(lines: list[str], max_units: float) -> list[str]:
+    """Keep 行頭禁則 punctuation off a line start: pull the mark up onto the prior
+    line's end by default (追い込み), but drop it when pulling up would push the
+    prior line past ``max_units`` — never overflow the box or orphan the mark
+    (ADR-0008)."""
     for i in range(1, len(lines)):
         while lines[i] and lines[i][0] in KINSOKU_HEAD:
-            lines[i - 1] += lines[i][0]
+            mark = lines[i][0]
+            if text_units(lines[i - 1] + mark) <= max_units + 1e-6:
+                lines[i - 1] += mark  # fits: 追い込み
+            # else: pulling up would overflow — drop the mark
             lines[i] = lines[i][1:]
     return [ln for ln in lines if ln]
 
