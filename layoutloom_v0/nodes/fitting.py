@@ -41,6 +41,60 @@ def fit_text(text: str, w: float, h: float, cap: float | None = None) -> tuple[f
     return None
 
 
+def compose_lines(chunks: list[str], max_units: float, max_lines: int = 2) -> list[str]:
+    """Compose phrase chunks into balanced lines, each within ``max_units``
+    (font-size units, per :func:`text_units`), never splitting a chunk unless
+    it alone overflows. Fill-first: if everything fits on one line, keep it.
+    """
+    def fits(s: str) -> bool:  # tolerate float drift when a budget lands on a char boundary
+        return text_units(s) <= max_units + 1e-6
+
+    joined = "".join(chunks)
+    if fits(joined):
+        return [joined]
+    atoms: list[str] = []
+    for chunk in chunks:
+        if fits(chunk):
+            atoms.append(chunk)
+            continue
+        # No boundary to break at: fall back to greedy character breaking.
+        run = ""
+        for ch in chunk:
+            if run and not fits(run + ch):
+                atoms.append(run)
+                run = ch
+            else:
+                run += ch
+        if run:
+            atoms.append(run)
+    def pack(cap: float) -> list[str]:  # greedy fill with a per-line width cap
+        lines: list[str] = []
+        cur = ""
+        for atom in atoms:
+            if cur and text_units(cur + atom) > cap + 1e-6:
+                lines.append(cur)
+                cur = atom
+            else:
+                cur += atom
+        if cur:
+            lines.append(cur)
+        return lines
+
+    # Keep the minimum line count, then shrink the width cap as far as it can go
+    # without needing another line — this balances the lines instead of leaving
+    # a full first line and an orphaned tail.
+    target = len(pack(max_units))
+    lo = max((text_units(a) for a in atoms), default=0.0)
+    hi = max_units
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        if len(pack(mid)) <= target:
+            hi = mid
+        else:
+            lo = mid
+    return pack(hi)
+
+
 def line_count(text: str, fs: float, w: float) -> int:
     """Lines the text will occupy at a given font size (1 or 2)."""
     return 1 if fs * text_units(text) <= w else 2
