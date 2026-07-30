@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -39,6 +39,10 @@ for _d in ("output", "assets", "fonts", "presets"):
     Path(_d).mkdir(parents=True, exist_ok=True)
 
 _NAME_RE = re.compile(r"^[\w一-鿿 \-]{1,40}$")
+# Uploaded campaign assets (product images / logos) land here and are served
+# over /assets, so the emitted campaign HTML can reference them.
+_UPLOAD_DIR = Path("assets/uploads")
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 def _preset_path(name: str) -> Path:
@@ -47,6 +51,21 @@ def _preset_path(name: str) -> Path:
     if not _NAME_RE.match(name):
         raise HTTPException(status_code=422, detail=f"invalid preset name {name!r}")
     return _PRESETS_DIR / f"{name}.json"
+
+
+def _safe_upload_name(filename: str) -> str:
+    """A filesystem-safe basename for an uploaded image: strip any directory,
+    keep only word chars / dash (CJK included), require an image extension.
+    Rejects traversal and non-image files."""
+    p = Path(filename)
+    suffix = p.suffix.lower()
+    if suffix not in _IMAGE_EXTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported file type {suffix!r}; expected one of {sorted(_IMAGE_EXTS)}",
+        )
+    stem = re.sub(r"[^\w\-]+", "_", p.stem).strip("_") or "asset"
+    return f"{stem}{suffix}"
 # Produced banner.html / banner.png at /output; asset + font files at /assets,
 # /fonts so the emitted HTML can reference them over HTTP (see asset_base_url).
 app.mount("/output", StaticFiles(directory="output"), name="output")
@@ -75,6 +94,10 @@ class CampaignRequest(BaseModel):
     # optional campaign override (same shape as campaign.json); None -> the
     # LUMOS mock campaign
     campaign: dict | None = None
+    # brand-kit overrides (from the editor); None -> the mock brand. palette is
+    # the ordered hex list; logo_path is an uploaded path under assets/uploads.
+    palette: list[str] | None = None
+    logo_path: str | None = None
 
 
 class RenderResponse(BaseModel):
@@ -126,15 +149,55 @@ def graph_v1() -> dict:
     return json.loads(Path("loom/LayoutLoom-v1.json").read_text(encoding="utf-8"))
 
 
+@app.post("/upload")
+async def upload_asset(file: UploadFile = File(...)) -> dict:
+    """Store an uploaded product image / logo under assets/uploads and return
+    its path (for the campaign JSON) + URL (for previewing). Colliding names
+    get a numeric suffix so one upload never clobbers another."""
+    name = _safe_upload_name(file.filename or "asset.png")
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _UPLOAD_DIR / name
+    i = 1
+    while dest.exists():
+        dest = _UPLOAD_DIR / f"{Path(name).stem}-{i}{Path(name).suffix}"
+        i += 1
+    dest.write_bytes(await file.read())
+    return {"path": dest.as_posix(), "url": f"/{dest.as_posix()}"}
+
+
+@app.get("/campaign/mock")
+def campaign_mock() -> dict:
+    """The LUMOS mock campaign as an editable seed for the Campaign editor:
+    the campaign JSON plus the mock brand palette + logo path."""
+    from layoutloom_v1.mockdata import MOCK_DIR, MOCK_PALETTE, ensure_mock_campaign
+
+    data = json.loads(ensure_mock_campaign().read_text(encoding="utf-8"))
+    return {
+        **data,
+        "palette": list(MOCK_PALETTE),
+        "logo_path": (MOCK_DIR / "logo.png").as_posix(),
+    }
+
+
+def _resolve_brand(req: CampaignRequest):
+    """The BrandKitConfig for a campaign request: the editor's palette / logo
+    when given, else the mock brand."""
+    from layoutloom_v1.config import BrandKitConfig
+    from layoutloom_v1.mockdata import MOCK_DIR, MOCK_PALETTE
+
+    palette = tuple(req.palette) if req.palette else MOCK_PALETTE
+    logo_path = Path(req.logo_path) if req.logo_path else MOCK_DIR / "logo.png"
+    return BrandKitConfig(palette=palette, logo_path=logo_path)
+
+
 @app.post("/render-campaign")
 def render_campaign_endpoint(req: CampaignRequest) -> dict:
     """Run the whole v1 campaign pipeline; banners land under /output/campaign."""
     from dataclasses import asdict
 
-    from layoutloom_v1.config import BrandKitConfig
     from layoutloom_v1.config import PipelineConfig as V1Config
     from layoutloom_v1.driver import render_campaign
-    from layoutloom_v1.mockdata import MOCK_DIR, MOCK_PALETTE, ensure_mock_campaign
+    from layoutloom_v1.mockdata import ensure_mock_campaign
 
     if req.campaign is not None:
         campaign_path = Path("output/campaign-web.json")
@@ -143,10 +206,7 @@ def render_campaign_endpoint(req: CampaignRequest) -> dict:
         ensure_mock_campaign()  # custom campaigns may still reference mock art/logo
     else:
         campaign_path = ensure_mock_campaign()
-    cfg = V1Config(
-        campaign_path=campaign_path,
-        brand=BrandKitConfig(palette=MOCK_PALETTE, logo_path=MOCK_DIR / "logo.png"),
-    )
+    cfg = V1Config(campaign_path=campaign_path, brand=_resolve_brand(req))
 
     designer = None
     note = None

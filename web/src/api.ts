@@ -70,14 +70,59 @@ export interface CampaignResult {
   note?: string | null;
 }
 
+// --- v1 campaign editor (#2) ---
+
+export interface CampaignProduct {
+  name: string;
+  product_name: string;
+  title: string;
+  subtitle: string;
+  cta: string;
+  product_image: string; // path under assets/… returned by uploadAsset
+}
+
+// The mock campaign the editor seeds from: campaign JSON + brand kit.
+export interface CampaignSeed {
+  campaign: string;
+  products: CampaignProduct[];
+  palette: string[];
+  logo_path: string;
+}
+
+export async function fetchMockCampaign(): Promise<CampaignSeed> {
+  const res = await fetch(`${API_BASE}/campaign/mock`);
+  if (!res.ok) throw new Error(`GET /campaign/mock failed: ${res.status}`);
+  return res.json();
+}
+
+// Upload a product image / logo; returns its stored path (for the campaign
+// JSON) and URL (for previewing).
+export async function uploadAsset(file: File): Promise<{ path: string; url: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail?.detail ?? `POST /upload failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function renderCampaign(
   stub: boolean,
-  campaign?: object,
+  campaign?: { campaign: string; products: CampaignProduct[] } | null,
+  palette?: string[] | null,
+  logoPath?: string | null,
 ): Promise<CampaignResult> {
   const res = await fetch(`${API_BASE}/render-campaign`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ stub, campaign: campaign ?? null }),
+    body: JSON.stringify({
+      stub,
+      campaign: campaign ?? null,
+      palette: palette ?? null,
+      logo_path: logoPath ?? null,
+    }),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
