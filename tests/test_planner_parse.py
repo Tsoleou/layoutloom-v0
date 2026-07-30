@@ -26,3 +26,19 @@ def test_tolerates_fences_and_prose():
 def test_rejects_missing_fields(bad: str):
     with pytest.raises(ValueError):
         parse_plan_response(bad)
+
+
+def test_extracts_model_supplied_chunks():
+    payload = json.dumps(
+        {
+            "spec": {"title": {}},
+            "html": "<html></html>",
+            "chunks": {"title": ["限時三天，", "全館優惠"]},
+        }
+    )
+    assert parse_plan_response(payload).chunks == {"title": ["限時三天，", "全館優惠"]}
+
+
+def test_absent_chunks_default_to_empty_for_guard_fallback():
+    # No "chunks" key: parse leaves it empty; the guard segments the HTML text.
+    assert parse_plan_response(_payload()).chunks == {}

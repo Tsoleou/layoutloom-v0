@@ -24,6 +24,8 @@ from layoutloom_v0.nodes.assets_io import ImageAsset
 from ..config import ModelConfig
 from .brand_kit import BrandKit
 from .campaign_io import Campaign
+from layoutloom_v0.nodes.fitting import segment_text
+
 from .layout_catalog import CATALOG, archetype_names, default_archetype
 from .size_set import RATIO_CLASSES, Size
 
@@ -43,6 +45,7 @@ class ProductDesign:
     name: str
     layouts: dict[str, str]  # ratio class -> archetype name
     style: StyleTokens
+    chunks: dict[str, list[str]] = field(default_factory=dict)  # element -> phrase chunks
     notes: tuple[str, ...] = ()
 
 
@@ -127,6 +130,11 @@ def build_prompt(
         )
     products = "\n".join(product_lines)
     layouts_example = ", ".join(f'"{c}": "<archetype>"' for c in classes_used)
+    first = campaign.products[0]
+    chunks_example = json.dumps(
+        {"title": segment_text(first.title), "subtitle": segment_text(first.subtitle)},
+        ensure_ascii=False,
+    )
     return f"""You are the art director for a GDN display-ad campaign. Decide the design
 system ONCE for the whole campaign — every product line, every size class.
 Deterministic code will expand your decisions into exact geometry and HTML;
@@ -149,6 +157,7 @@ Respond with ONLY a JSON object:
 {{"products": [
   {{"name": "<product name>",
     "layouts": {{{layouts_example}}},
+    "chunks": {{"title": [...], "subtitle": [...]}},
     "style": {{
       "background": {{"type": "solid", "color": "<palette>"}}
                     or {{"type": "gradient", "from": "<palette>", "to": "<palette>", "angle": 135}},
@@ -157,6 +166,12 @@ Respond with ONLY a JSON object:
       "type_scale": 1.0
     }}}}
 ]}}
+
+"chunks": phrase segmentation for each product's title and subtitle — each split
+into a list of atomic semantic chunks that must never be broken across lines,
+keeping any punctuation on the chunk it ends. Segment by meaning, not width; the
+same chunks wrap at every size, so code composes the lines. For "{first.name}":
+{chunks_example}
 
 Rules: text colours must contrast strongly with the background; the CTA must
 stand out; long titles prefer layouts with wide text regions; tall product
@@ -201,14 +216,28 @@ def parse_master_design(
             layouts[cls] = choice
 
         style = _parse_style(raw.get("style"), brand, notes)
+        chunks = _parse_chunks(raw.get("chunks"), line)
         products[line.name] = ProductDesign(
-            name=line.name, layouts=layouts, style=style, notes=tuple(notes)
+            name=line.name, layouts=layouts, style=style, chunks=chunks, notes=tuple(notes)
         )
 
     for name in by_name:
         if name and name not in products:
             global_notes.append(f"model invented product {name!r}; ignored")
     return MasterDesign(products=products, notes=tuple(global_notes))
+
+
+def _parse_chunks(raw: object, line: "ProductLine") -> dict[str, list[str]]:
+    """Phrase segmentation per text field, mirroring v0's BannerPlan.chunks."""
+    src = raw if isinstance(raw, dict) else {}
+    chunks: dict[str, list[str]] = {}
+    for field_name, text in (("title", line.title), ("subtitle", line.subtitle)):
+        parts = src.get(field_name)
+        if isinstance(parts, list) and parts and all(isinstance(p, str) for p in parts):
+            chunks[field_name] = parts
+        elif text:
+            chunks[field_name] = segment_text(text)
+    return chunks
 
 
 def _parse_style(raw: object, brand: BrandKit, notes: list[str]) -> StyleTokens:
@@ -335,5 +364,6 @@ class StubMasterDesigner:
                 name=line.name,
                 layouts={cls: default_archetype(cls).name for cls in RATIO_CLASSES},
                 style=style,
+                chunks=_parse_chunks(None, line),
             )
         return MasterDesign(products=products)

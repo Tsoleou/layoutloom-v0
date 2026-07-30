@@ -16,6 +16,7 @@ class ProductLine:
     subtitle: str
     cta: str
     product_image: Path
+    product_name: str = ""  # the part of the title that must own its own line (ADR-0008)
 
 
 @dataclass(frozen=True)
@@ -41,8 +42,9 @@ def load_campaign(path: Path) -> Campaign:
                 name=str(p["name"]),
                 title=str(p["title"]),
                 subtitle=str(p.get("subtitle", "")),
-                cta=str(p.get("cta", "了解更多")),
+                cta=str(p.get("cta", "Learn More")),
                 product_image=Path(p["product_image"]),
+                product_name=str(p.get("product_name", "")),
             )
         )
     return Campaign(name=str(data.get("campaign", path.stem)), products=tuple(lines))

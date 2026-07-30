@@ -22,11 +22,11 @@ pytest tests/test_driver.py     # one file
 pytest tests/test_planner_parse.py::test_parses_clean_json   # one test
 
 # Offline smoke test of the wiring (no Ollama, no browser):
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --stub --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --stub --demo-assets
 
 # Real run (needs `ollama pull gemma3:4b` + a headless browser):
 pip install -e ".[render]" && playwright install chromium
-python -m layoutloom_v0 --title 大促銷 --subtitle 限時三天 --demo-assets
+python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only" --demo-assets
 
 # API:
 uvicorn layoutloom_v0.api:app --port 8012
@@ -143,16 +143,27 @@ Key semantics, deliberately different from v0:
 - Reuses v0's `HtmlRenderer/PlaywrightRenderer/StubRenderer` and asset
   loaders; `StubMasterDesigner` + `StubRenderer` keep the whole campaign
   pipeline offline-testable. v0 stays fully runnable and untouched.
-- Web: the frontend has a **v0 單張 / v1 Campaign mode switch**. v1 minimal
-  integration: `GET /graph/v1` (contract for the node canvas) +
-  `POST /render-campaign` (`{stub, campaign?}`; campaign None -> LUMOS mock).
+- Web: the frontend has a **v0 單張 / v1 Campaign mode switch**. v1
+  integration: `GET /graph/v1` (contract for the node canvas), `GET
+  /campaign/mock` (the LUMOS campaign as an editable seed), `POST /upload`
+  (multipart product-image / logo upload → `assets/uploads/`, served over
+  `/assets`), and `POST /render-campaign`
+  (`{stub, campaign?, palette?, logo_path?}`; all-None -> LUMOS mock).
   The canvas toggles between the node graph and a **full-set grid** (banners
   grouped per product across all sizes). v1's `stub` only stubs the
   *designer* — the renderer stays Playwright when available, because the grid
-  shows final PNGs (a stubbed renderer would show blank fills). No v1 per-node
-  config editing yet (no v1 node_config bridge).
+  shows final PNGs (a stubbed renderer would show blank fills).
+- **Campaign editor** (`web/src/CampaignEditor.tsx`, ticket #2): the v1 panel
+  seeds from `GET /campaign/mock` and lets you edit the campaign name, brand
+  palette, and per-product-line copy, add/remove lines, and upload logo +
+  product images (`POST /upload` → path stored on the campaign). Render sends
+  the edited campaign + palette + logo to `/render-campaign`. `api.py`'s
+  `_resolve_brand` threads the palette/logo into `BrandKitConfig` (mock brand
+  when unset); `_safe_upload_name` sanitizes upload filenames. The LUMOS mock
+  is **retained** as the offline test fixture — the editor is additive.
+  No named-campaign save/load yet (a follow-up, like v0 presets).
 - Out of scope by decision: GIF/animation, i18n. Not yet built: v1 node-config
-  editing in the web UI, campaign editor, rembg cutouts.
+  editing in the web UI, named-campaign persistence, rembg cutouts.
 
 ## Deliberate contract deviations (documented assumptions)
 

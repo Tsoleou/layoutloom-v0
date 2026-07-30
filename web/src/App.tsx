@@ -12,12 +12,14 @@ import {
   API_BASE,
   deletePreset,
   fetchGraph,
+  fetchMockCampaign,
   getPreset,
   listPresets,
   renderBanner,
   renderCampaign,
   savePreset,
   type CampaignResult,
+  type CampaignSeed,
   type LoomGraph,
   type PipelineVersion,
   type RenderResult,
@@ -25,6 +27,7 @@ import {
 import { toFlow, type LoomNodeData } from "./graph";
 import { LoomNode } from "./LoomNode";
 import { BannerPreview } from "./BannerPreview";
+import { CampaignEditor } from "./CampaignEditor";
 import { CampaignGrid } from "./CampaignGrid";
 import { ConfigContext } from "./configContext";
 
@@ -69,6 +72,8 @@ export function App() {
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const [campaignCount, setCampaignCount] = useState(0);
   const [v1View, setV1View] = useState<"graph" | "grid">("graph");
+  // Editable campaign, seeded from the LUMOS mock on first entry to v1 mode.
+  const [seed, setSeed] = useState<CampaignSeed | null>(null);
 
   const setConfig = useCallback((nodeId: string, key: string, value: unknown) => {
     setConfigs((c) => ({ ...c, [nodeId]: { ...c[nodeId], [key]: value } }));
@@ -86,11 +91,27 @@ export function App() {
       .catch((e) => setGraphError(String(e)));
   }, [mode, setNodes, setEdges]);
 
+  // Seed the editor from the mock campaign the first time v1 mode is opened.
+  useEffect(() => {
+    if (mode !== "v1" || seed) return;
+    fetchMockCampaign()
+      .then(setSeed)
+      .catch((e) => setCampaignError(String(e)));
+  }, [mode, seed]);
+
   const onRenderCampaign = useCallback(async () => {
     setCampaignBusy(true);
     setCampaignError(null);
     try {
-      setCampaignResult(await renderCampaign(stub));
+      const result = seed
+        ? await renderCampaign(
+            stub,
+            { campaign: seed.campaign, products: seed.products },
+            seed.palette,
+            seed.logo_path,
+          )
+        : await renderCampaign(stub);
+      setCampaignResult(result);
       setCampaignCount((n) => n + 1);
       setV1View("grid");
     } catch (e) {
@@ -98,7 +119,14 @@ export function App() {
     } finally {
       setCampaignBusy(false);
     }
-  }, [stub]);
+  }, [stub, seed]);
+
+  const onResetCampaign = useCallback(() => {
+    setCampaignError(null);
+    fetchMockCampaign()
+      .then(setSeed)
+      .catch((e) => setCampaignError(String(e)));
+  }, []);
 
   // Load the v0 config defaults + preset list once (the canvas itself is
   // owned by the mode effect above); re-apply the last selected preset.
@@ -233,12 +261,34 @@ export function App() {
         {mode === "v1" && (
           <>
             <button onClick={onRenderCampaign} disabled={campaignBusy || !graph}>
-              {campaignBusy ? "Rendering campaign…" : "Render Campaign (mock)"}
+              {campaignBusy
+                ? "Rendering campaign…"
+                : `Render Campaign · ${seed?.products.length ?? 0} 產品線`}
             </button>
             <p className="muted">
-              LUMOS mock campaign:4 產品線 × 7 GDN 尺寸 = 28 張。
-              {!stub && "真跑約 1–2 分鐘(一次 master design + 28 次截圖)。"}
+              {seed?.products.length ?? 0} 產品線 × 7 GDN 尺寸 ={" "}
+              {(seed?.products.length ?? 0) * 7} 張。
+              {!stub && "真跑每張約數秒(一次 master design + 逐張截圖)。"}
             </p>
+            {seed && (
+              <details className="editor-wrap" open>
+                <summary>
+                  編輯 Campaign
+                  <button
+                    className="ghost"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onResetCampaign();
+                    }}
+                    disabled={campaignBusy}
+                  >
+                    重設為 mock
+                  </button>
+                </summary>
+                <CampaignEditor seed={seed} onChange={setSeed} disabled={campaignBusy} />
+              </details>
+            )}
             {campaignError && <p className="error">⚠ {campaignError}</p>}
             {campaignResult && (
               <div className="result">

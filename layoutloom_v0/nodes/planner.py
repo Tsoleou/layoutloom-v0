@@ -9,7 +9,7 @@ is the offline reference implementation for tests.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -18,6 +18,7 @@ import requests
 from ..config import ModelConfig
 from .assets_io import FontAsset, ImageAsset
 from .canvas import Canvas
+from .fitting import segment_text
 from .layout_pick import Layout, reference_spec
 
 
@@ -25,6 +26,8 @@ from .layout_pick import Layout, reference_spec
 class BannerPlan:
     spec: dict
     html: str
+    # phrase segmentation per text field (title/subtitle) — the composer's input
+    chunks: dict[str, list[str]] = field(default_factory=dict)
 
 
 def asset_uri(path: Path, base_url: str | None) -> str:
@@ -79,6 +82,10 @@ def build_prompt(
         else "centered horizontally inside the TEXT region (text-align: center)"
     )
     example = json.dumps(reference_spec(layout, product, logo, title, subtitle), indent=2)
+    chunks_example = json.dumps(
+        {"title": segment_text(title), "subtitle": segment_text(subtitle)},
+        ensure_ascii=False,
+    )
     return f"""You are a banner layout designer. Design a single static banner.
 
 Canvas: {canvas.width}x{canvas.height}px, background {canvas.background}.
@@ -88,11 +95,16 @@ Font: family "{font.family}". In the HTML <style>, include: {font_face}
 Title: {title}
 Subtitle: {subtitle}
 
-Respond with ONLY a JSON object, no markdown fences, with exactly two keys:
+Respond with ONLY a JSON object, no markdown fences, with exactly three keys:
   "spec": an object describing each element's size, position and font size
           (keys: product, logo, title, subtitle; values: objects with x, y,
           width, height, and font_size_px for text; a text box's height is
           roughly its font_size_px),
+  "chunks": phrase segmentation for the title and subtitle — each split into a
+          list of atomic semantic chunks that must never be broken across
+          lines, keeping any punctuation on the chunk it ends. Segment by
+          meaning, not width; code composes the lines. For this copy:
+          {chunks_example}
   "html": a complete self-contained HTML document that renders the banner
           exactly per the spec. It MUST follow exactly this structure — same
           tags, same classes, one absolutely-positioned element each, inline
@@ -165,7 +177,15 @@ def parse_plan_response(text: str) -> BannerPlan:
     spec, html = data.get("spec"), data.get("html")
     if not isinstance(spec, dict) or not isinstance(html, str) or not html.strip():
         raise ValueError("model response missing 'spec' object or 'html' string")
-    return BannerPlan(spec=spec, html=html)
+    # Optional phrase segmentation. Keep only well-formed {field: [str, ...]}
+    # entries; anything malformed is ignored so the guard falls back per field.
+    raw = data.get("chunks")
+    chunks: dict[str, list[str]] = {}
+    if isinstance(raw, dict):
+        for field_name, parts in raw.items():
+            if isinstance(parts, list) and all(isinstance(p, str) for p in parts) and parts:
+                chunks[field_name] = parts
+    return BannerPlan(spec=spec, html=html, chunks=chunks)
 
 
 class OllamaBannerPlanner:
@@ -253,4 +273,7 @@ body {{ margin: 0; }}
 <img class="el" src="{asset_uri(product.path, base)}" style="{pos('product')}">
 <h1 class="el" style="{txt('title')}">{title}</h1>{subtitle_el}
 </div></body></html>"""
-        return BannerPlan(spec=spec, html=html)
+        chunks = {"title": segment_text(title)}
+        if "subtitle" in spec:
+            chunks["subtitle"] = segment_text(subtitle)
+        return BannerPlan(spec=spec, html=html, chunks=chunks)

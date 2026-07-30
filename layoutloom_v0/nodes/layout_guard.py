@@ -7,11 +7,14 @@ owns the *geometry*. It clamps every element into the regions of the Layout
 chosen by the "Pick Layout" node, restacks the text column with proportional
 gaps, and rewrites the inline styles + spec to match.
 
-Text handling is width-aware: font sizes are fitted to the actual copy (the
-inner text is parsed from the HTML) with a two-line budget, stacked using the
-real wrapped height — not a one-line guess — and a subtitle that cannot reach
-the minimum font size is dropped rather than squeezed. This is what keeps the
-layout intact at any canvas size, not just the default 1200x628.
+Text handling is width-aware and phrase-aware (ADR-0006): the copy's phrase
+chunks (from BannerPlan.chunks, or segment_text as a fallback) are fitted with
+fit_chunks and composed into explicit <br> lines written back into the HTML —
+line breaks are the composer's job, not the browser's greedy auto-wrap. Font
+sizes never assume a split the composer can't make, the stack uses the real
+composed line counts, and a subtitle that cannot reach the minimum font size
+is dropped rather than squeezed. This is what keeps the layout intact at any
+canvas size, not just the default 1200x628.
 
 HTML that doesn't match the template is returned untouched — there is nothing
 safe to repair.
@@ -22,7 +25,7 @@ import re
 from dataclasses import dataclass
 
 from .assets_io import ImageAsset
-from .fitting import LINE_HEIGHT, MIN_FS, fit_text, line_count
+from .fitting import LINE_HEIGHT, MIN_FS, compose_lines, fit_chunks, segment_text
 from .layout_pick import Layout
 from .planner import BannerPlan
 
@@ -114,14 +117,23 @@ def repair_layout(
     lg, ttl, prd = els["logo"], els["title"], els["product"]
     sub = els.get("subtitle")
 
+    def chunks_of(el: _El) -> list[str]:
+        # the model's phrase segmentation, or a deterministic fallback per field
+        return plan.chunks.get(el.name) or segment_text(el.text or "字")
+
+    def composed(el: _El) -> list[str]:
+        # the actual lines at the element's final width and font size
+        assert el.fs
+        return compose_lines(chunks_of(el), min(el.w, t.w) / el.fs)
+
     # Title font: clamp into the archetype's range, then never above what the
-    # actual copy can fit in the region (two-line budget, larger font wins).
+    # actual composed lines fit in the region (chunk-aware, larger font wins).
     assert ttl.fs
     lo, hi = layout.title_fs
-    fitted = fit_text(ttl.text or "字", t.w, t.h * 0.6, cap=hi) or (MIN_FS, 2)
-    fix(ttl, "font-size", min(max(ttl.fs, lo), hi, fitted[0]), "title scale/fit")
-    title_lines = line_count(ttl.text or "字", ttl.fs, t.w)
-    title_h = title_lines * ttl.fs * LINE_HEIGHT
+    fitted = fit_chunks(chunks_of(ttl), min(ttl.w, t.w), t.h * 0.6, cap=hi)
+    fix(ttl, "font-size", min(max(ttl.fs, lo), hi, fitted[0] if fitted else MIN_FS), "title scale/fit")
+    title_line_list = composed(ttl)
+    title_h = len(title_line_list) * ttl.fs * LINE_HEIGHT
 
     # Logo: cap by archetype, region width AND region height share.
     max_logo_w = min(layout.logo_max_w, t.w, 0.28 * t.h * logo.width / logo.height)
@@ -130,16 +142,20 @@ def repair_layout(
 
     # Subtitle font — or drop it when it cannot fit above the minimum size.
     dropped_subtitle = False
+    sub_line_list: list[str] = []
     if sub is not None:
         assert sub.fs
         s_lo, s_hi = layout.subtitle_fs
         budget_h = t.h - logo_h - gap - title_h - gap / 2
-        s_fitted = fit_text(sub.text or "字", t.w, max(budget_h, 1), cap=min(s_hi, ttl.fs * 0.75))
+        s_fitted = fit_chunks(
+            chunks_of(sub), min(sub.w, t.w), max(budget_h, 1), cap=min(s_hi, ttl.fs * 0.75)
+        )
         if s_fitted is None:
             fixes.append("subtitle: dropped (cannot fit at readable size)")
             dropped_subtitle = True
         else:
             fix(sub, "font-size", min(max(sub.fs, s_lo), s_hi, s_fitted[0]), "subtitle scale/fit")
+            sub_line_list = composed(sub)
 
     def aligned_x(width: float) -> float:
         return t.x if layout.align == "left" else t.x + (t.w - width) / 2
@@ -157,7 +173,7 @@ def repair_layout(
     if sub is not None and not dropped_subtitle:
         assert sub.fs
         fix(sub, "top", max(sub.y, ttl.y + title_h + gap / 2), "clear the title")
-        bottom = sub.y + line_count(sub.text or "字", sub.fs, t.w) * sub.fs * LINE_HEIGHT
+        bottom = sub.y + len(sub_line_list) * sub.fs * LINE_HEIGHT
     # Pull the stack back up if it would clip the region bottom.
     overflow = bottom - t.bottom
     if overflow > 0:
@@ -195,6 +211,14 @@ def repair_layout(
             if not re.search(rf"text-align\s*:\s*{layout.align}", el.style):
                 fixes.append(f"{el.name}: text-align {layout.align}")
 
+    # Composing multi-line text is an explicit rewrite of the inner HTML (the
+    # phrase break replaces the browser's auto-wrap), so record it — otherwise a
+    # geometrically-valid banner would keep its unbroken single run.
+    if len(title_line_list) > 1:
+        fixes.append(f"title: composed {len(title_line_list)} lines")
+    if sub is not None and not dropped_subtitle and len(sub_line_list) > 1:
+        fixes.append(f"subtitle: composed {len(sub_line_list)} lines")
+
     if not fixes:
         return plan, []
 
@@ -210,9 +234,10 @@ def repair_layout(
         "product": prd.w * ratio,
         "title": title_h,
     }
+    line_lists = {"title": title_line_list, "subtitle": sub_line_list}
     if sub is not None and not dropped_subtitle:
         assert sub.fs
-        heights["subtitle"] = line_count(sub.text or "字", sub.fs, t.w) * sub.fs * LINE_HEIGHT
+        heights["subtitle"] = len(sub_line_list) * sub.fs * LINE_HEIGHT
 
     for el in [lg, prd, *text_els]:
         new_style = el.style
@@ -231,7 +256,15 @@ def repair_layout(
             new_style = f"{new_style.rstrip('; ')}; text-align:{layout.align};"
         if not stylesheet_ok and not re.search(r"position\s*:\s*absolute", new_style):
             new_style = f"position:absolute; margin:0; {new_style.lstrip()}"
-        html = html.replace(el.tag_html, el.tag_html.replace(el.style, new_style), 1)
+        new_open = el.tag_html.replace(el.style, new_style)
+        if el.name in ("title", "subtitle"):
+            # rewrite the whole element so the inner text carries the composed
+            # <br> line breaks, not just the opening tag's styles
+            kind = "h1" if el.name == "title" else "p"
+            inner = "<br>".join(line_lists[el.name])
+            html = html.replace(el.outer, f"{new_open}{inner}</{kind}>", 1)
+        else:
+            html = html.replace(el.tag_html, new_open, 1)
         entry = dict(spec.get(el.name) or {})
         entry.update(x=round(el.x), y=round(el.y), width=round(el.w), height=round(heights[el.name]))
         if el.fs is not None:

@@ -1,4 +1,4 @@
-"""CLI: python -m layoutloom_v0 --title 主標題 --subtitle 副標題
+"""CLI: python -m layoutloom_v0 --title "Big Sale" --subtitle "Three Days Only"
 
 --stub swaps in the deterministic planner + renderer (no Ollama, no browser)
 so the wiring can be exercised offline.
